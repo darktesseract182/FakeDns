@@ -9,7 +9,6 @@ import os
 import socketserver
 import socket
 import sys
-import threading
 
 
 class ThreadedUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
