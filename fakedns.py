@@ -311,7 +311,6 @@ def main(debug):
     except socket.error:
         sys.exit('>> Could not start server -- is another program on udp:53?')
 
-    server.daemon = True
     try:
         server.serve_forever()
     except KeyboardInterrupt:
