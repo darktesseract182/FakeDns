@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" FakeDns fork by Al-Azif"""
+""" FakeDns by Crypt0s, Fork by Al-Azif"""
 
 from __future__ import print_function
 
@@ -142,7 +142,8 @@ class NONEFOUND(DNSResponse):
         self.rranswers = '\x00\x00'
         self.length = '\x00\x00'
         self.data = '\x00'
-        print('>> Built NONEFOUND response')
+        if DEBUG:
+            print('>> Built NONEFOUND response')
 
 
 class Rule (object):
@@ -179,17 +180,20 @@ def respond(data, addr, s):
 
 class RuleError_BadRegularExpression(Exception):
     def __init__(self, lineno):
-        print('>> Malformed Regular Expression on rulefile line #{}'.format(lineno))
+        if DEBUG:
+            print('>> Malformed Regular Expression on rulefile line #{}'.format(lineno))
 
 
 class RuleError_BadRuleType(Exception):
     def __init__(self, lineno):
-        print('>> Rule type unsupported on rulefile line #{}'.format(lineno))
+        if DEBUG:
+            print('>> Rule type unsupported on rulefile line #{}'.format(lineno))
 
 
 class RuleError_BadFormat(Exception):
     def __init__(self, lineno):
-        print('>> Not Enough Parameters for rule on rulefile line #{}'.format(lineno))
+        if DEBUG:
+            print('>> Not Enough Parameters for rule on rulefile line #{}'.format(lineno))
 
 
 class RuleEngine2:
@@ -235,7 +239,8 @@ class RuleEngine2:
 
                 lineno += 1
 
-            print('>> Parsed {} rules from {}'.format(len(self.rule_list), file_))
+            if DEBUG:
+                print('>> Parsed {} rules from {}'.format(len(self.rule_list), file_))
 
     def match(self, query, addr):
         for rule in self.rule_list:
@@ -248,7 +253,8 @@ class RuleEngine2:
 
                 response = CASE[query.type](query, response_data)
 
-                print('>> Matched Request: {}'.format(query.domain))
+                if DEBUG:
+                    print('>> Matched Request: {}'.format(query.domain))
                 return response.make_packet()
 
         try:
@@ -258,18 +264,23 @@ class RuleEngine2:
             s.sendto(query.data, addr)
             data = s.recv(1024)
             s.close()
-            print('>> Unmatched Request: {}'.format(query.domain))
+            if DEBUG:
+                print('>> Unmatched Request: {}'.format(query.domain))
             return data
         except socket.error:
-            print('>> Error was handled by sending NONEFOUND')
+            if DEBUG:
+                print('>> Error was handled by sending NONEFOUND')
             return NONEFOUND(query).make_packet()
 
 
-def main():
+def main(debug):
     global rule_list
     global rules
     global TYPE
     global CASE
+    global DEBUG
+
+    DEBUG = bool(debug)
 
     TYPE = {
         '\x00\x01': 'A',
@@ -308,4 +319,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='FakeDns Fork by Al Azif')
+    parser.add_argument('--debug', action='store_true',
+                        required=False, help='Print debug statements')
+    args = parser.parse_args()
+
+    main(args.debug)
