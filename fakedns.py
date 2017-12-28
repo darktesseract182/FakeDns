@@ -5,9 +5,11 @@
 from __future__ import print_function
 
 import re
+import os
 import socketserver
 import socket
 import sys
+import threading
 
 
 class ThreadedUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
@@ -19,7 +21,10 @@ class ThreadedUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 class UDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         (data, s) = self.request
-        respond(data, self.client_address, s)
+        p = DNSQuery(data)
+        response = rules.match(p, self.client_address[0])
+        s.sendto(response, self.client_address)
+        return response
 
 
 class DNSQuery:
@@ -39,20 +44,6 @@ class DNSQuery:
             self.type = data[-4:-2]
 
 
-def _get_question_section(query):
-    start_idx = 12
-    end_idx = start_idx
-    num_questions = (ord(query.data[4]) << 8) | ord(query.data[5])
-
-    while num_questions > 0:
-        while query.data[end_idx] != '\0':
-            end_idx += ord(query.data[end_idx]) + 1
-        end_idx += 5
-        num_questions -= 1
-
-    return query.data[start_idx:end_idx]
-
-
 class DNSResponse(object):
     def __init__(self, query):
         self.id = query.data[:2]
@@ -61,13 +52,26 @@ class DNSResponse(object):
         self.rranswers = '\x00\x01'
         self.rrauthority = '\x00\x00'
         self.rradditional = '\x00\x00'
-        self.query = _get_question_section(query)
+        self.query = self.__get_question_section(query)
         self.pointer = '\xc0\x0c'
         self.type = None
         self.dnsclass = '\x00\x01'
         self.ttl = '\x00\x00\x00\x01'
         self.length = None
         self.data = None
+
+    def __get_question_section(self, query):
+        start_idx = 12
+        end_idx = start_idx
+        num_questions = (ord(query.data[4]) << 8) | ord(query.data[5])
+
+        while num_questions > 0:
+            while query.data[end_idx] != '\0':
+                end_idx += ord(query.data[end_idx]) + 1
+            end_idx += 5
+            num_questions -= 1
+
+        return query.data[start_idx:end_idx]
 
     def make_packet(self):
         try:
@@ -102,6 +106,7 @@ class AAAA(DNSResponse):
     def get_ip_6(host, port=0):
         result = socket.getaddrinfo(host, port, socket.AF_INET6)
         ip = result[0][4][0]
+        return ip
 
 
 class CNAME(DNSResponse):
@@ -171,13 +176,6 @@ class Rule (object):
         return self.ip
 
 
-def respond(data, addr, s):
-    p = DNSQuery(data)
-    response = rules.match(p, addr[0])
-    s.sendto(response, addr)
-    return response
-
-
 class RuleError_BadRegularExpression(Exception):
     def __init__(self, lineno):
         if DEBUG:
@@ -224,16 +222,10 @@ class RuleEngine2:
                 except:
                     raise RuleError_BadRegularExpression(lineno)
 
-                # TODO: Fix or remove this
-                # Deal With Special IPv6 Nonsense
-                # if rule_type.upper() == 'AAAA':
-                #     tmp_ip_array = []
-                #     for ip in ips:
-                #         if _is_shorthand_ip(ip):
-                #             ip = _explode_shorthand_ip_string(ip)
-                #         ip = ip.replace(':', '').decode('hex')
-                #         tmp_ip_array.append(ip)
-                #     ips = tmp_ip_array
+                if rule_type.upper() == 'AAAA':
+                    if self.__is_shorthand_ip(ip):
+                        ip = self.__explode_shorthand_ip_string(ip)
+                    ip = ip.replace(':', '').decode('hex')
 
                 self.rule_list.append(Rule(rule_type, domain, ip))
 
@@ -241,6 +233,40 @@ class RuleEngine2:
 
             if DEBUG:
                 print('>> Parsed {} rules from {}'.format(len(self.rule_list), file_))
+
+    def __is_shorthand_ip(self, ip_str):
+        if ip_str.count('::') == 1:
+            return True
+        if any(len(x) < 4 for x in ip_str.split(':')):
+            return True
+        return False
+
+    def __explode_shorthand_ip_string(self, ip_str):
+        if not self.__is_shorthand_ip(ip_str):
+            return ip_str
+
+        hextet = ip_str.split('::')
+
+        if '.' in ip_str.split(':')[-1]:
+            fill_to = 7
+        else:
+            fill_to = 8
+
+        if len(hextet) > 1:
+            sep = len(hextet[0].split(':')) + len(hextet[1].split(':'))
+            new_ip = hextet[0].split(':')
+
+            for _ in range(fill_to - sep):
+                new_ip.append('0000')
+            new_ip += hextet[1].split(':')
+
+        else:
+            new_ip = ip_str.split(':')
+
+        ret_ip = []
+        for hextet in new_ip:
+            ret_ip.append(('0' * (4 - len(hextet)) + hextet).lower())
+        return ':'.join(ret_ip)
 
     def match(self, query, addr):
         for rule in self.rule_list:
@@ -273,7 +299,7 @@ class RuleEngine2:
             return NONEFOUND(query).make_packet()
 
 
-def main(debug):
+def main(path, debug):
     global rule_list
     global rules
     global TYPE
@@ -300,7 +326,9 @@ def main(debug):
         '\x00\x10': TXT
     }
 
-    rules = RuleEngine2('dns.conf')
+    if not os.path.isfile(path):
+        sys.exit('>> Unable to locate configuration')
+    rules = RuleEngine2(path)
     rule_list = rules.rule_list
 
     interface = '0.0.0.0'
@@ -309,7 +337,7 @@ def main(debug):
     try:
         server = ThreadedUDPServer((interface, port), UDPHandler)
     except socket.error:
-        sys.exit('>> Could not start server -- is another program on udp:53?')
+        sys.exit('>> Could not start server, is another program on udp:53?')
 
     try:
         server.serve_forever()
@@ -321,8 +349,10 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='FakeDns Fork by Al Azif')
+    parser.add_argument('-c', dest='path', action='store',
+                        required=True, help='Path to configuration file')
     parser.add_argument('--debug', action='store_true',
                         required=False, help='Print debug statements')
     args = parser.parse_args()
 
-    main(args.debug)
+    main(args.path, args.debug)
