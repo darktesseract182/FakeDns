@@ -74,20 +74,6 @@ class DNSResponse(object):
 
     def make_packet(self):
         try:
-            """print('Self ID: {}'.format(self.id))
-            print('Self Flags: {}'.format(self.flags))
-            print('Self Questions: {}'.format(self.questions))
-            print('Self rranswers: {}'.format(self.rranswers))
-            print('Self rrauthority: {}'.format(self.rrauthority))
-            print('Self rradditional: {}'.format(self.rradditional))
-            print('Self query: {}'.format(self.query))
-            print('Self pointer: {}'.format(self.pointer))
-            print('Self type: {}'.format(self.type))
-            print('Self dnclass: {}'.format(self.dnsclass))
-            print('Self ttl: {}'.format(self.ttl))
-            print('Self length: {}'.format(self.length))"""
-            print('Self data: {}'.format(self.data))
-
             return self.id + self.flags + self.questions + self.rranswers + \
                 self.rrauthority + self.rradditional + self.query + \
                 self.pointer + self.type + self.dnsclass + self.ttl + \
