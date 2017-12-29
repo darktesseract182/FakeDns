@@ -1,14 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """ FakeDns by Crypt0s, Fork by Al-Azif"""
 
-from __future__ import print_function
-
+import codecs
 import re
 import os
 import socketserver
 import socket
 import sys
+import threading
 
 
 class ThreadedUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
@@ -23,21 +23,20 @@ class UDPHandler(socketserver.BaseRequestHandler):
         p = DNSQuery(data)
         response = rules.match(p, self.client_address[0])
         s.sendto(response, self.client_address)
-        return response
 
 
 class DNSQuery:
     def __init__(self, data):
         self.data = data
         self.domain = ''
-        tipo = (ord(data[2]) >> 3) & 15
+        tipo = (data[2] >> 3) & 15
         if tipo == 0:
             ini = 12
-            lon = ord(data[ini])
+            lon = data[ini]
             while lon != 0:
-                self.domain += data[ini + 1:ini + lon + 1] + '.'
+                self.domain += '{}.'.format(codecs.decode(data[ini + 1:ini + lon + 1], 'utf-8'))
                 ini += lon + 1
-                lon = ord(data[ini])
+                lon = data[ini]
             self.type = data[ini:][1:3]
         else:
             self.type = data[-4:-2]
@@ -46,27 +45,28 @@ class DNSQuery:
 class DNSResponse(object):
     def __init__(self, query):
         self.id = query.data[:2]
-        self.flags = '\x81\x80'
+        self.flags = b'\x81\x80'
         self.questions = query.data[4:6]
-        self.rranswers = '\x00\x01'
-        self.rrauthority = '\x00\x00'
-        self.rradditional = '\x00\x00'
-        self.query = self.__get_question_section(query)
-        self.pointer = '\xc0\x0c'
+        self.rranswers = b'\x00\x01'
+        self.rrauthority = b'\x00\x00'
+        self.rradditional = b'\x00\x00'
+        self.query = self.get_question_section(query)
+        self.pointer = b'\xc0\x0c'
         self.type = None
-        self.dnsclass = '\x00\x01'
-        self.ttl = '\x00\x00\x00\x01'
+        self.dnsclass = b'\x00\x01'
+        self.ttl = b'\x00\x00\x00\x01'
         self.length = None
         self.data = None
 
-    def __get_question_section(self, query):
+    @staticmethod
+    def get_question_section(query):
         start_idx = 12
         end_idx = start_idx
-        num_questions = (ord(query.data[4]) << 8) | ord(query.data[5])
+        num_questions = (query.data[4] << 8) | query.data[5]
 
         while num_questions > 0:
-            while query.data[end_idx] != '\0':
-                end_idx += ord(query.data[end_idx]) + 1
+            while query.data[end_idx] != 0:
+                end_idx += query.data[end_idx] + 1
             end_idx += 5
             num_questions -= 1
 
@@ -74,6 +74,20 @@ class DNSResponse(object):
 
     def make_packet(self):
         try:
+            """print('Self ID: {}'.format(self.id))
+            print('Self Flags: {}'.format(self.flags))
+            print('Self Questions: {}'.format(self.questions))
+            print('Self rranswers: {}'.format(self.rranswers))
+            print('Self rrauthority: {}'.format(self.rrauthority))
+            print('Self rradditional: {}'.format(self.rradditional))
+            print('Self query: {}'.format(self.query))
+            print('Self pointer: {}'.format(self.pointer))
+            print('Self type: {}'.format(self.type))
+            print('Self dnclass: {}'.format(self.dnsclass))
+            print('Self ttl: {}'.format(self.ttl))
+            print('Self length: {}'.format(self.length))"""
+            print('Self data: {}'.format(self.data))
+
             return self.id + self.flags + self.questions + self.rranswers + \
                 self.rrauthority + self.rradditional + self.query + \
                 self.pointer + self.type + self.dnsclass + self.ttl + \
@@ -85,23 +99,35 @@ class DNSResponse(object):
 class A(DNSResponse):
     def __init__(self, query, record):
         super(A, self).__init__(query)
-        self.type = '\x00\x01'
-        self.length = '\x00\x04'
+        self.type = b'\x00\x01'
+        self.length = b'\x00\x04'
         self.data = self.get_ip(record)
 
+    # TODO: Fix this horrible abomination
     @staticmethod
     def get_ip(dns_record):
         ip = dns_record
-        return ''.join(chr(int(x)) for x in ip.split('.'))
+        if ip == '0.0.0.0':
+            return b'\x00\x00\x00\x00'
+        bytes_array = []
+        for x in ip.split('.'):
+            temp = bytes(hex(int(x)), 'utf-8')
+            temp = temp.replace(b'0x', b'')
+            if len(temp) == 1:
+                temp = b'0' + temp
+            bytes_array.append(temp)
+
+        return codecs.decode(b''.join(bytes_array), 'hex')
 
 
 class AAAA(DNSResponse):
     def __init__(self, query, address):
         super(AAAA, self).__init__(query)
-        self.type = '\x00\x1c'
-        self.length = '\x00\x10'
+        self.type = b'\x00\x1c'
+        self.length = b'\x00\x10'
         self.data = address
 
+    @staticmethod
     def get_ip_6(host, port=0):
         result = socket.getaddrinfo(host, port, socket.AF_INET6)
         ip = result[0][4][0]
@@ -111,30 +137,30 @@ class AAAA(DNSResponse):
 class CNAME(DNSResponse):
     def __init__(self, query):
         super(CNAME, self).__init__(query)
-        self.type = '\x00\x05'
+        self.type = b'\x00\x05'
 
 
 class PTR(DNSResponse):
     def __init__(self, query, ptr_entry):
         super(PTR, self).__init__(query)
-        self.type = '\x00\x0c'
-        self.ttl = '\x00\x00\x00\x00'
+        self.type = b'\x00\x0c'
+        self.ttl = b'\x00\x00\x00\x00'
         ptr_split = ptr_entry.split('.')
-        ptr_entry = '\x07'.join(ptr_split)
-        self.data = '\x09{}\x00'.format(ptr_entry)
+        ptr_entry = b'\x07'.join(ptr_split)
+        self.data = b'\x09{}\x00'.format(ptr_entry)
         self.length = chr(len(ptr_entry) + 2)
-        if self.length < '\xff':
-            self.length = '\x00{}'.format(self.length)
+        if self.length < b'\xff':
+            self.length = b'\x00{}'.format(self.length)
 
 
 class TXT(DNSResponse):
     def __init__(self, query, txt_record):
         super(TXT, self).__init__(query)
-        self.type = '\x00\x10'
+        self.type = b'\x00\x10'
         self.data = txt_record
         self.length = chr(len(txt_record) + 1)
-        if self.length < '\xff':
-            self.length = '\x00{}'.format(self.length)
+        if self.length < b'\xff':
+            self.length = b'\x00{}'.format(self.length)
         self.length += chr(len(txt_record))
 
 
@@ -142,15 +168,15 @@ class NONEFOUND(DNSResponse):
     def __init__(self, query):
         super(NONEFOUND, self).__init__(query)
         self.type = query.type
-        self.flags = '\x81\x83'
-        self.rranswers = '\x00\x00'
-        self.length = '\x00\x00'
-        self.data = '\x00'
+        self.flags = b'\x81\x83'
+        self.rranswers = b'\x00\x00'
+        self.length = b'\x00\x00'
+        self.data = b'\x00'
         if DEBUG:
             print('>> Built NONEFOUND response')
 
 
-class Rule (object):
+class Rule(object):
     def __init__(self, rule_type, domain, ip):
         self.type = rule_type
         self.domain = domain
@@ -193,7 +219,7 @@ class RuleError_BadFormat(Exception):
             print('>> Not Enough Parameters for rule on rulefile line #{}'.format(lineno))
 
 
-class RuleEngine2:
+class RuleEngine:
     def __init__(self, file_):
         self.match_history = {}
         self.rule_list = []
@@ -214,7 +240,7 @@ class RuleEngine2:
                 domain = s_rule[1]
                 ip = s_rule[2]
 
-                if rule_type not in TYPE.values():
+                if rule_type not in list(TYPE.values()):
                     raise RuleError_BadRuleType(lineno)
                 try:
                     domain = re.compile(domain)
@@ -308,50 +334,37 @@ def main(path, debug):
     DEBUG = bool(debug)
 
     TYPE = {
-        '\x00\x01': 'A',
-        '\x00\x1c': 'AAAA',
-        '\x00\x05': 'CNAME',
-        '\x00\x0c': 'PTR',
-        '\x00\x10': 'TXT',
-        '\x00\x0f': 'MX',
-        '\x00\x06': 'SOA'
+        b'\x00\x01': 'A',
+        b'\x00\x1c': 'AAAA',
+        b'\x00\x05': 'CNAME',
+        b'\x00\x0c': 'PTR',
+        b'\x00\x10': 'TXT',
+        b'\x00\x0f': 'MX',
+        b'\x00\x06': 'SOA'
     }
 
     CASE = {
-        '\x00\x01': A,
-        '\x00\x1c': AAAA,
-        '\x00\x05': CNAME,
-        '\x00\x0c': PTR,
-        '\x00\x10': TXT
+        b'\x00\x01': A,
+        b'\x00\x1c': AAAA,
+        b'\x00\x05': CNAME,
+        b'\x00\x0c': PTR,
+        b'\x00\x10': TXT
     }
 
     if not os.path.isfile(path):
-        sys.exit('>> Unable to locate configuration')
-    rules = RuleEngine2(path)
+        sys.exit('ERROR: Unable to locate configuration')
+    rules = RuleEngine(path)
     rule_list = rules.rule_list
 
-    interface = '0.0.0.0'
-    port = 53
-
     try:
-        server = ThreadedUDPServer((interface, port), UDPHandler)
+        server = ThreadedUDPServer(('', 53), UDPHandler)
     except socket.error:
-        sys.exit('>> Could not start server, is another program on udp:53?')
+        sys.exit('ERROR: Could not start server, is another program on udp:53?')
 
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        sys.exit('>> Exiting...')
+    thread = threading.Thread(target=server.serve_forever, args=())
+    thread.daemon = True
+    thread.start()
 
 
 if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser(description='FakeDns Fork by Al Azif')
-    parser.add_argument('-c', dest='path', action='store',
-                        required=True, help='Path to configuration file')
-    parser.add_argument('--debug', action='store_true',
-                        required=False, help='Print debug statements')
-    args = parser.parse_args()
-
-    main(args.path, args.debug)
+    pass
