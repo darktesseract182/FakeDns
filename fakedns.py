@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-""" FakeDns by Crypt0s, Fork by Al-Azif"""
+""" FakeDns by Crypt0s, Fork by Al-Azif
+   Source: https://github.com/Al-Azif/FakeDns
+"""
 
 import codecs
 import re
@@ -230,7 +232,7 @@ class RuleEngine:
                     raise RuleError_BadRuleType(lineno)
                 try:
                     domain = re.compile(domain)
-                except:
+                except re.error:
                     raise RuleError_BadRegularExpression(lineno)
 
                 if rule_type.upper() == 'AAAA':
@@ -347,8 +349,10 @@ def main(path, debug):
     except socket.error:
         sys.exit('ERROR: Could not start server, is another program on udp:53?')
 
-    thread = threading.Thread(target=server.serve_forever, args=())
-    thread.daemon = True
+    thread = threading.Thread(name='DNS_Server',
+                              target=server.serve_forever,
+                              args=(),
+                              daemon=True)
     thread.start()
 
 
