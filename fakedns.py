@@ -6,7 +6,6 @@
 
 import codecs
 import re
-import os
 import socketserver
 import socket
 import sys
@@ -208,44 +207,42 @@ class RuleError_BadFormat(Exception):
 
 
 class RuleEngine:
-    def __init__(self, file_):
+    def __init__(self, rules):
         self.match_history = {}
         self.rule_list = []
 
-        with open(file_, 'r') as rulefile:
-            rules = rulefile.readlines()
-            lineno = 0
+        lineno = 0
 
-            for rule in rules:
-                if len(rule.strip()) == 0 or rule == '\n':
-                    continue
+        for rule in rules:
+            if len(rule.strip()) == 0 or rule == '\n':
+                continue
 
-                if len(rule.split()) < 3:
-                    raise RuleError_BadFormat(lineno)
+            if len(rule.split()) < 3:
+                raise RuleError_BadFormat(lineno)
 
-                s_rule = rule.split()
-                rule_type = s_rule[0].upper()
-                domain = s_rule[1]
-                ip = s_rule[2]
+            s_rule = rule.split()
+            rule_type = s_rule[0].upper()
+            domain = s_rule[1]
+            ip = s_rule[2]
 
-                if rule_type not in list(TYPE.values()):
-                    raise RuleError_BadRuleType(lineno)
-                try:
-                    domain = re.compile(domain)
-                except re.error:
-                    raise RuleError_BadRegularExpression(lineno)
+            if rule_type not in list(TYPE.values()):
+                raise RuleError_BadRuleType(lineno)
+            try:
+                domain = re.compile(domain)
+            except re.error:
+                raise RuleError_BadRegularExpression(lineno)
 
-                if rule_type.upper() == 'AAAA':
-                    if self.__is_shorthand_ip(ip):
-                        ip = self.__explode_shorthand_ip_string(ip)
-                    ip = ip.replace(':', '').decode('hex')
+            if rule_type.upper() == 'AAAA':
+                if self.__is_shorthand_ip(ip):
+                    ip = self.__explode_shorthand_ip_string(ip)
+                ip = ip.replace(':', '').decode('hex')
 
-                self.rule_list.append(Rule(rule_type, domain, ip))
+            self.rule_list.append(Rule(rule_type, domain, ip))
 
-                lineno += 1
+            lineno += 1
 
-            if DEBUG:
-                print('>> Parsed {} rules from {}'.format(len(self.rule_list), file_))
+        if DEBUG:
+            print('>> FakeDns parsed {} rules'.format(len(self.rule_list)))
 
     def __is_shorthand_ip(self, ip_str):
         if ip_str.count('::') == 1:
@@ -312,7 +309,7 @@ class RuleEngine:
             return NONEFOUND(query).make_packet()
 
 
-def main(path, debug):
+def main(rule_array, debug):
     global rule_list
     global rules
     global TYPE
@@ -339,9 +336,7 @@ def main(path, debug):
         b'\x00\x10': TXT
     }
 
-    if not os.path.isfile(path):
-        sys.exit('ERROR: Unable to locate configuration')
-    rules = RuleEngine(path)
+    rules = RuleEngine(rule_array)
     rule_list = rules.rule_list
 
     try:
