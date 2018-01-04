@@ -341,7 +341,7 @@ def main(rule_array, debug):
 
     try:
         server = ThreadedUDPServer(('', 53), UDPHandler)
-    except socket.error:
+    except (socket.error, OSError):
         sys.exit('ERROR: Could not start server, is another program on udp:53?')
 
     thread = threading.Thread(name='DNS_Server',
