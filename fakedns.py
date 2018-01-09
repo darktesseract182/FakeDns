@@ -5,6 +5,7 @@
 """
 
 import codecs
+import os
 import re
 import socketserver
 import socket
@@ -90,21 +91,9 @@ class A(DNSResponse):
         self.length = b'\x00\x04'
         self.data = self.get_ip(record)
 
-    # TODO: Fix this horrible abomination
     @staticmethod
     def get_ip(dns_record):
-        ip = dns_record
-        if ip == '0.0.0.0':
-            return b'\x00\x00\x00\x00'
-        bytes_array = []
-        for x in ip.split('.'):
-            temp = bytes(hex(int(x)), 'utf-8')
-            temp = temp.replace(b'0x', b'')
-            if len(temp) == 1:
-                temp = b'0' + temp
-            bytes_array.append(temp)
-
-        return codecs.decode(b''.join(bytes_array), 'hex')
+        return b''.join(map(lambda x: bytes([int(x)]), dns_record.split('.')))
 
 
 class AAAA(DNSResponse):
@@ -309,6 +298,35 @@ class RuleEngine:
             return NONEFOUND(query).make_packet()
 
 
+def getch():
+    """MIT Licensed: https://github.com/joeyespo/py-getch"""
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def closer(message):
+    """Closing method"""
+    print(message)
+    if message != '\r>> Exiting...                                           ':
+        print('Press any key to exit...', end='')
+        sys.stdout.flush()
+        if os.name == 'nt':
+            from msvcrt import getch as w_getch
+            w_getch()
+        else:
+            getch()
+        print()
+    sys.exit()
+
+
 def main(rule_array, debug):
     global rule_list
     global rules
@@ -342,10 +360,10 @@ def main(rule_array, debug):
     try:
         server = ThreadedUDPServer(('', 53), UDPHandler)
     except socket.error:
-        sys.exit('ERROR: Could not start server, is another program on udp:53?')
+        closer('ERROR: Could not start server, is another program on udp:53?')
     except OSError:
         print('ERROR: Could not start server, is another program on udp:53')
-        sys.exit('    ^^This could also be a permission error^^')
+        closer('    ^^This could also be a permission error^^')
 
     thread = threading.Thread(name='DNS_Server',
                               target=server.serve_forever,
