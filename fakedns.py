@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """ FakeDns by Crypt0s, Fork by Al-Azif
    Source: https://github.com/Al-Azif/FakeDns
