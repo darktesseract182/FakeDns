@@ -14,6 +14,9 @@ import threading
 
 
 class ThreadedUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
+    daemon_threads = True
+    allow_resuse_address = True
+
     def __init__(self, server_address, request_handler):
         self.address_family = socket.AF_INET
         socketserver.UDPServer.__init__(self, server_address, request_handler)
@@ -268,19 +271,23 @@ class RuleEngine:
         return ':'.join(ret_ip)
 
     def match(self, query, addr):
-        for rule in self.rule_list:
-            result = rule.match(query.type, query.domain, addr)
-            if result is not None:
-                response_data = result
+        if addr not in IGNORE:
+            for rule in self.rule_list:
+                result = rule.match(query.type, query.domain, addr)
+                if result is not None:
+                    response_data = result
 
-                if response_data.lower() == 'none':
-                    return NONEFOUND(query).make_packet()
+                    if response_data.lower() == 'none':
+                        return NONEFOUND(query).make_packet()
 
-                response = CASE[query.type](query, response_data)
+                    response = CASE[query.type](query, response_data)
 
-                if DEBUG:
-                    print('>> Matched Request: {}'.format(query.domain))
-                return response.make_packet()
+                    if DEBUG:
+                        print('>> Matched Request: {}'.format(query.domain))
+                    return response.make_packet()
+        else:
+            passthru = True
+            print('>> Pass-thru for {}: {}'.format(addr, query.domain))
 
         try:
             s = socket.socket(type=socket.SOCK_DGRAM)
@@ -289,7 +296,7 @@ class RuleEngine:
             s.sendto(query.data, addr)
             data = s.recv(1024)
             s.close()
-            if DEBUG:
+            if DEBUG and not passthru:
                 print('>> Unmatched Request: {}'.format(query.domain))
             return data
         except socket.error:
@@ -327,12 +334,13 @@ def closer(message):
     sys.exit()
 
 
-def main(interface, rule_array, debug):
+def main(interface, rule_array, ignore, debug):
     global rule_list
     global rules
     global TYPE
     global CASE
     global DEBUG
+    global IGNORE
 
     DEBUG = bool(debug)
 
@@ -353,6 +361,8 @@ def main(interface, rule_array, debug):
         b'\x00\x0c': PTR,
         b'\x00\x10': TXT
     }
+
+    IGNORE = ignore
 
     rules = RuleEngine(rule_array)
     rule_list = rules.rule_list
