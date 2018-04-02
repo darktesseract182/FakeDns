@@ -220,7 +220,7 @@ class RuleEngine:
             if rule_type not in list(TYPE.values()):
                 raise RuleError_BadRuleType(lineno)
             try:
-                domain = re.compile(domain)
+                domain = re.compile(domain, flags=re.IGNORECASE)
             except re.error:
                 raise RuleError_BadRegularExpression(lineno)
 
@@ -292,7 +292,7 @@ class RuleEngine:
         try:
             s = socket.socket(type=socket.SOCK_DGRAM)
             s.settimeout(3.0)
-            addr = ('{}'.format('8.8.8.8'), 53)
+            addr = ('1.1.1.1', 53)
             s.sendto(query.data, addr)
             data = s.recv(1024)
             s.close()
