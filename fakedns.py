@@ -272,6 +272,7 @@ class RuleEngine:
 
     def match(self, query, addr):
         if addr not in IGNORE:
+            passthru = False
             for rule in self.rule_list:
                 result = rule.match(query.type, query.domain, addr)
                 if result is not None:
