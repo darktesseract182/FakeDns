@@ -335,7 +335,7 @@ def closer(message):
     sys.exit()
 
 
-def main(interface, rule_array, ignore, debug):
+def main(interface, port, rule_array, ignore, debug):
     global rule_list
     global rules
     global TYPE
@@ -369,7 +369,7 @@ def main(interface, rule_array, ignore, debug):
     rule_list = rules.rule_list
 
     try:
-        server = ThreadedUDPServer((interface, 53), UDPHandler)
+        server = ThreadedUDPServer((interface, port), UDPHandler)
     except socket.error:
         closer('ERROR: Could not start server, is another program on udp:53?')
     except OSError:
